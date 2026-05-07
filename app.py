@@ -191,6 +191,24 @@ col_t2.checkbox("40 L", key="input_t40")
 
 st.button("Uložiť záznam", type="primary", on_click=save_record_callback)
 
+# --- INFO O POSLEDNOM TANKOVANÍ ---
+# Filtrujeme len riadky, kde bolo tankovanie (nie je tam "-")
+tankovacie_df = full_df_with_minutes[full_df_with_minutes['Tankovanie'] != "-"]
+
+if not tankovacie_df.empty:
+    # Zoberieme najnovší záznam s tankovaním
+    posledne_tank = tankovacie_df.iloc[0]
+    objem = posledne_tank['Tankovanie']
+    
+    # Spočítame sumu minút od tohto tankovania po dnes (vrátane)
+    # tankovacie_df.index[0] je pozícia posledného tankovania v zoradenej tabuľke
+    idx = full_df_with_minutes.index.get_loc(tankovacie_df.index[0])
+    minuty_od_tankovania = full_df_with_minutes.iloc[:idx]['Minúty'].sum()
+    
+    st.info(f"⛽ **Posledné tankovanie ({objem}):** bolo pred **{int(minuty_od_tankovania)} minútami**.")
+else:
+    st.info("⛽ Zatiaľ nebolo zaznamenané žiadne tankovanie.")
+
 if 'action_msg' in st.session_state:
     m_type, m_text = st.session_state.action_msg
     if m_type == "error": st.error(m_text)
