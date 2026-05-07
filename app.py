@@ -9,20 +9,11 @@ import io
 st.set_page_config(page_title="Minúty 2026", layout="centered")
 
 # --- GITHUB GIST KONFIGURÁCIA ---
+# Tieto údaje si pridaj do Streamlit Cloud Secrets
 GIST_ID = st.secrets["github"]["gist_id"]
 TOKEN = st.secrets["github"]["token"]
 DATA_FILE = "data.csv"
 NAMES_FILE = "Zoznam_mien.txt"
-
-# TVOJ KOMPLETNÝ ZOZNAM MIEN (Záloha, ak by Gist bol prázdny)
-DEFAULT_NAMES = [
-    "--Vyber lyžiara--", "Peťo", "Zuzka", "Maťo O.", "Ester", "Sofia", "Sarah", 
-    "Lea H.", "Milena", "Marína", "Olivka", "Lívia Bač.", "Julka", "Lívia Bal.", 
-    "Zojka", "Matti", "Mathias", "Matija", "Adam", "Radko", "Jessica", 
-    "Praženka M.", "Zahrev", "Slalom", "Oprava", "Majko", "Maros", "Preteky", 
-    "Urbanek T.", "HappyMove", "Dejczo T.", "Laura", "STAT", "Dino Cup", 
-    "Klara", "Mia", "Lea M."
-]
 
 # --- POMOCNÉ FUNKCIE PRE GIST ---
 def load_from_gist(filename, default_content=""):
@@ -46,28 +37,14 @@ def save_to_gist(filename, content):
 
 # --- FUNKCIE PRE DÁTA ---
 def load_names():
-    # Pokúsi sa načítať zo súboru v Giste
-    content = load_from_gist(NAMES_FILE, "")
-    if content.strip():
-        names = [line.strip() for line in content.splitlines() if line.strip()]
-    else:
-        # Ak je Gist prázdny, použije DEFAULT_NAMES a rovno ich tam uloží
-        names = DEFAULT_NAMES
-        save_to_gist(NAMES_FILE, "\n".join(names))
-    
-    # Zabezpečíme, aby "--Vyber lyžiara--" bol vždy prvý a zvyšok abecedne
-    if "--Vyber lyžiara--" in names:
-        names.remove("--Vyber lyžiara--")
-    return ["--Vyber lyžiara--"] + sorted(names)
+    content = load_from_gist(NAMES_FILE, "Jozef\nMichal\n")
+    return sorted([line.strip() for line in content.splitlines() if line.strip()])
 
 def save_name(new_name):
-    # Načíta aktuálne, pridá nové a uloží späť do Gistu
     names = load_names()
     if new_name not in names:
         names.append(new_name)
-        # Uložíme čistý zoznam bez "--Vyber lyžiara--" pre poriadok v súbore
-        if "--Vyber lyžiara--" in names: names.remove("--Vyber lyžiara--")
-        save_to_gist(NAMES_FILE, "\n".join(sorted(names)))
+        save_to_gist(NAMES_FILE, "\n".join(names))
 
 def load_data():
     content = load_from_gist(DATA_FILE, "ID,Date,Meno,Hodnota,Tankovanie")
@@ -82,9 +59,47 @@ def save_data(df):
     csv_content = df.to_csv(index=False)
     save_to_gist(DATA_FILE, csv_content)
 
-# --- Zvyšok kódu (process_dataframe, callback, UI) zostáva rovnaký ---
-# ... (vlož sem funkciu process_dataframe z predošlej správy) ...
+# --- VÝPOČET MINÚT ---
+def process_dataframe(df):
+    if df.empty:
+        return df
+    
+    def prep_sort(group):
+        vals = group['Hodnota'].astype(int)
+        has_high = (vals >= 900).any()
+        has_low = (vals <= 100).any()
+        if has_high and has_low:
+            group['SortValue'] = group['Hodnota'].apply(lambda x: int(x) + 1000 if int(x) < 500 else int(x))
+        else:
+            group['SortValue'] = vals
+        return group
 
+    processed_days = []
+    unique_dates = sorted(df['Date'].unique())
+    for d in unique_dates:
+        day_df = df[df['Date'] == d].copy()
+        day_df = prep_sort(day_df)
+        processed_days.append(day_df)
+    
+    full_df = pd.concat(processed_days)
+    full_df = full_df.sort_values(['Date', 'SortValue'])
+    
+    vals = full_df['Hodnota'].astype(int).tolist()
+    minutes = []
+    prev_val = None
+    for v in vals:
+        if prev_val is None:
+            minutes.append(0)
+        else:
+            diff = v - prev_val
+            if diff < -500: diff += 1000
+            minutes.append(diff)
+        prev_val = v
+        
+    full_df['Minúty'] = minutes
+    return full_df.sort_values(['Date', 'SortValue'], ascending=[False, False])
+
+# --- CALLBACK ---
 def save_record_callback():
     hodnota_in = st.session_state.get('input_hodnota', '')
     pridat_nove = st.session_state.get('pridat_nove_checkbox', False)
@@ -97,7 +112,7 @@ def save_record_callback():
         st.session_state.action_msg = ("error", "Zadaj číselnú hodnotu!")
         return
     
-    if pridat_nove and meno_na_zapis:
+    if pridat_nove:
         save_name(meno_na_zapis)
         
     tank = []
@@ -116,14 +131,14 @@ def save_record_callback():
     updated_df = pd.concat([current_df, pd.DataFrame([new_row])], ignore_index=True)
     save_data(updated_df)
     
-    # Reset polí
     st.session_state.input_hodnota = ""
     st.session_state.pridat_nove_checkbox = False
     st.session_state.input_t20 = False
     st.session_state.input_t40 = False
-    if 'input_nove_meno' in st.session_state: st.session_state.input_nove_meno = ""
-    st.session_state.action_msg = ("success", "Záznam aj meno uložené do Cloudu!")
-    
+    if 'input_nove_meno' in st.session_state:
+        st.session_state.input_nove_meno = ""
+    st.session_state.action_msg = ("success", "Záznam uložený do Cloudu!")
+
 # --- HLAVNÁ APP ---
 st.title("Minúty 2026 🏄🏄")
 
