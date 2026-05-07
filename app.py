@@ -191,7 +191,7 @@ col_t2.checkbox("40 L", key="input_t40")
 
 st.button("Uložiť záznam", type="primary", on_click=save_record_callback)
 
-# --- VÝPOČET PALIVA OD POSLEDNÉHO TANKOVANIA ---
+# --- VÝPOČET PALIVA OD POSLEDNÉHO TANKOVANIA (ZAOKRÚHLENÉ) ---
 if not full_df_with_minutes.empty:
     # 1. Nájdeme všetky záznamy, kde sa tankovalo
     vsetky_tankovania = full_df_with_minutes[full_df_with_minutes['Tankovanie'] != "-"]
@@ -201,37 +201,35 @@ if not full_df_with_minutes.empty:
         posledne_tank_row = vsetky_tankovania.iloc[0]
         objem_posledne = posledne_tank_row['Tankovanie']
         
-        # Zistíme, koľko litrov sa naposledy nalialo
+        # Zistíme litre (20L=90min, 40L=180min, 60L=270min)
         litrov_posledne = 0
-        if "20 L" in objem_posledne: litrov_posledne = 20
-        if "40 L" in objem_posledne: litrov_posledne = 40
-        if "20 L + 40 L" in objem_posledne or "40 L + 20 L" in objem_posledne: litrov_posledne = 60
-
-        # 2. Výpočet kapacity z tohto tankovania (20L = 90min => 1L = 4.5min)
+        if "20 L" in objem_posledne: litrov_posledne += 20
+        if "40 L" in objem_posledne: litrov_posledne += 40
+        
         kapacita_minut = litrov_posledne * 4.5
 
-        # 3. Spočítame minúty odjazdené OD tohto tankovania doteraz
-        # Nájdeme pozíciu tohto tankovania v tabuľke
+        # 2. Spočítame minúty odjazdené OD tohto tankovania doteraz
         idx_posledne = full_df_with_minutes.index.get_loc(vsetky_tankovania.index[0])
-        # Sčítame minúty v riadkoch, ktoré sú NAD týmto záznamom (novšie záznamy)
         odjazdene_od_tankovania = full_df_with_minutes.iloc[:idx_posledne]['Minúty'].sum()
 
-        # 4. Zostatok
-        zostava_minut = kapacita_minut - odjazdene_od_tankovania
-
-        # Formátovanie textu
-        if zostava_minut > 0:
-            hod = int(zostava_minut // 60)
-            minutky = int(zostava_minut % 60)
-            cas_text = f"{hod}h {minutky}min"
-            farba_ikona = "✅" if zostava_minut > 20 else "⚠️"
+        # 3. Zostatok a zaokrúhlenie na 10 minút nadol
+        zostava_presne = kapacita_minut - odjazdene_od_tankovania
+        
+        if zostava_presne > 0:
+            # Zaokrúhlenie: napr. 54 -> 50, 59 -> 50, 61 -> 60
+            zostava_zaokruhlene = int(zostava_presne // 10) * 10
+            
+            hod = zostava_zaokruhlene // 60
+            minutky = zostava_zaokruhlene % 60
+            cas_text = f"{hod}h {minutky:02d}min" # Formát 0h 50min
+            farba_ikona = "✅" if zostava_zaokruhlene > 20 else "⚠️"
         else:
             cas_text = "PRÁZDNA (natankuj!)"
             farba_ikona = "🚨"
 
         st.info(f"⛽ **Posledné ({objem_posledne}):** pred {int(odjazdene_od_tankovania)} min | {farba_ikona} **V nádrži ešte cca:** {cas_text}")
     else:
-        st.warning("⛽ Nebolo nájdené žiadne tankovanie. Dojazd sa počíta od posledného zadania '20L/40L'.")
+        st.warning("⛽ Nebolo nájdené žiadne tankovanie. Začni zadaním 20L/40L.")
 
 # Zobrazenie hlásení (success/error)
 if 'action_msg' in st.session_state:
@@ -241,6 +239,8 @@ if 'action_msg' in st.session_state:
     del st.session_state.action_msg
 
 st.divider()
+
+
 # --- SEKCIA 2: HISTÓRIA ---
 st.header("História")
 hist_datum = st.date_input("Dátum histórie", date.today(), key="historia_datum")
