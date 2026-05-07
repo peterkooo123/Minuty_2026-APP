@@ -191,24 +191,52 @@ col_t2.checkbox("40 L", key="input_t40")
 
 st.button("Uložiť záznam", type="primary", on_click=save_record_callback)
 
-# --- INFO O POSLEDNOM TANKOVANÍ ---
-# Filtrujeme len riadky, kde bolo tankovanie (nie je tam "-")
-tankovacie_df = full_df_with_minutes[full_df_with_minutes['Tankovanie'] != "-"]
+# --- VÝPOČET PALIVA ---
+if not full_df_with_minutes.empty:
+    # 1. Spočítame celkový počet odjazdených minút (suma stĺpca Minúty)
+    celkove_odjazdene_minuty = full_df_with_minutes['Minúty'].sum()
 
-if not tankovacie_df.empty:
-    # Zoberieme najnovší záznam s tankovaním
-    posledne_tank = tankovacie_df.iloc[0]
-    objem = posledne_tank['Tankovanie']
+    # 2. Spočítame celkový objem natankovaného paliva z celej histórie
+    vsetky_tankovania = full_df_with_minutes[full_df_with_minutes['Tankovanie'] != "-"]
     
-    # Spočítame sumu minút od tohto tankovania po dnes (vrátane)
-    # tankovacie_df.index[0] je pozícia posledného tankovania v zoradenej tabuľke
-    idx = full_df_with_minutes.index.get_loc(tankovacie_df.index[0])
-    minuty_od_tankovania = full_df_with_minutes.iloc[:idx]['Minúty'].sum()
-    
-    st.info(f"⛽ **Posledné tankovanie ({objem}):** bolo pred **{int(minuty_od_tankovania)} minútami**.")
-else:
-    st.info("⛽ Zatiaľ nebolo zaznamenané žiadne tankovanie.")
+    celkovy_objem_litrov = 0
+    for t in vsetky_tankovania['Tankovanie']:
+        if "20 L" in t: celkovy_objem_litrov += 20
+        if "40 L" in t: celkovy_objem_litrov += 40
 
+    # 3. Prepočet na minúty (pomer: 20L = 90min => 1L = 4.5min)
+    vydrz_minuty_celkovo = celkovy_objem_litrov * 4.5
+    
+    # 4. Zostávajúce minúty v nádrži
+    zostava_minut = vydrz_minuty_celkovo - celkove_odjazdene_minuty
+
+    # 5. Formátovanie času na Hodiny a Minúty
+    if zostava_minut > 0:
+        hod = int(zostava_minut // 60)
+        minutky = int(zostava_minut % 60)
+        cas_text = f"{hod}h {minutky}min"
+        # Farba boxu podľa dojazdu
+        if zostava_minut > 45: farba_ikona = "✅"
+        elif zostava_minut > 15: farba_ikona = "⚠️"
+        else: farba_ikona = "⛽❗"
+    else:
+        cas_text = "NÁDRŽ JE PRÁZDNA"
+        farba_ikona = "🚨"
+
+    # --- ZOBRAZENIE INFO BOXU ---
+    if not vsetky_tankovania.empty:
+        posledne_tank = vsetky_tankovania.iloc[0] # Najnovšie tankovanie
+        objem_posledne = posledne_tank['Tankovanie']
+        
+        # Koľko sa odjazdilo presne od posledného kliknutia na tankovanie
+        idx_last = full_df_with_minutes.index.get_loc(vsetky_tankovania.index[0])
+        od_posledneho = full_df_with_minutes.iloc[:idx_last]['Minúty'].sum()
+
+        st.info(f"⛽ **Posledné ({objem_posledne}):** pred {int(od_posledneho)} min | {farba_ikona} **Dojazd cca:** {cas_text}")
+    else:
+        st.warning("⛽ Nebolo nájdené žiadne tankovanie. Zadaj tankovanie pre výpočet dojazdu.")
+
+# Zobrazenie hlásení (success/error)
 if 'action_msg' in st.session_state:
     m_type, m_text = st.session_state.action_msg
     if m_type == "error": st.error(m_text)
